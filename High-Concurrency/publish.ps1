@@ -72,5 +72,7 @@ foreach ($exe in $exeFiles) {
     Copy-Item $exe.FullName $distDir
     Write-Host "開始複製 ($exe)..."
 }
+#Step 6: 複製產log檔的ps1到dist
+Copy-Item 'record.ps1' $distDir
 
 Write-Host "發佈完成！檔案已輸出到 $distDir"

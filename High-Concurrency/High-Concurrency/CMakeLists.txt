@@ -14,3 +14,7 @@ target_link_libraries(server ws2_32)
 #client端
 add_executable(client client.cpp)
 target_link_libraries(client ws2_32)
+
+#client端(同時持續連線版)
+add_executable(client1 client1.cpp)
+target_link_libraries(client1 ws2_32)
