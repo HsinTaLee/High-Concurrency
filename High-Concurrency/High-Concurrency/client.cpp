@@ -3,8 +3,20 @@
 #include <memory>
 #include <vector>
 #include <thread>
+#include "writelog.h"
 
 using boost::asio::ip::tcp;
+
+Logger g_logger("checkclient");
+
+std::string getCurrentSystemTime() {
+    auto tt = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    struct tm* ptm = localtime(&tt);
+    char date[60] = { 0 };
+    sprintf(date, "%02d: %02d", (int)ptm->tm_min, (int)ptm->tm_sec);
+
+    return std::string(date);
+}
 
 class ClientSession : public std::enable_shared_from_this<ClientSession> {
 public:
@@ -14,9 +26,14 @@ public:
     void start(tcp::resolver::results_type endpoints) {
         auto self(shared_from_this());
         boost::asio::async_connect(socket_, endpoints,
-            [this, self](boost::system::error_code ec, tcp::endpoint) {
+            [this, self](boost::system::error_code ec, tcp::endpoint) {  
                 if (!ec) {
+                    //g_logger.log(message_);
                     do_write();
+                    do_read();
+                }
+                else {
+                    g_logger.log(message_ +"fullllll" + ec.message());
                 }
             });
     }
@@ -26,28 +43,47 @@ private:
         auto self(shared_from_this());
         boost::asio::async_write(socket_, boost::asio::buffer(message_),
             [this, self](boost::system::error_code ec, std::size_t) {
-                if (!ec) {
-                    do_read();
+                if (ec == boost::asio::error::eof) {
+                    g_logger.log("server killed himself in writing session");
+                    socket_.close();
+                }
+                else if (!ec) {
+                    //do_read();
+                }
+                else {
+                    g_logger.log(message_ + "writing fail");
                 }
             });
     }
-
     void do_read() {
         auto self(shared_from_this());
         boost::asio::async_read(socket_, boost::asio::buffer(reply_, message_.size()),
             [this, self](boost::system::error_code ec, std::size_t length) {
-                if (!ec) {
+                if (ec == boost::asio::error::eof) {
+                    g_logger.log("server killed himself in reading session");
+                    socket_.close();
+                }
+                else if (!ec) {
                     std::string reply(reply_, length);
                     if (reply == message_) {
-                        // echo ok
-                        // 可以在這裡再發送一次測試
-                        do_write();
+                        g_logger.log("Echo OK, closing: " + message_);
+                        // 主動關閉連線
+                        do_exit();
                     }
                     else {
-                        std::cerr << "Echo mismatch!" << std::endl;
+                        g_logger.log("Echo mismatch! client: " + message_);
                     }
                 }
+                else {
+                    g_logger.log("Read error on " + message_ + ": " + ec.message());
+                }
             });
+
+    }
+    void do_exit() {
+        boost::system::error_code ignored_ec;
+        socket_.shutdown(tcp::socket::shutdown_both, ignored_ec);
+        socket_.close();
     }
 
     tcp::socket socket_;
@@ -55,33 +91,48 @@ private:
     char reply_[1024];
 };
 
+
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        std::cerr << "Usage: client <host> <port> <num_connections>\n";
+    if (argc != 5) {
+        std::cerr << "Usage: client <host> <port> <num_connections/s><multi/s>\n";
         return 1;
     }
-
     std::string host = argv[1];
     std::string port = argv[2];
     int num_clients = std::stoi(argv[3]);
+    int num_limit = std::stoi(argv[4]);
 
     boost::asio::io_context io;
     tcp::resolver resolver(io);
     auto endpoints = resolver.resolve(host, port);
+    int num = 0;
+    for (int multi = 0; multi < num_limit; ++multi) {
+        std::vector<std::shared_ptr<ClientSession>> clients;
+        for (int i = 0; i < num_clients; ++i) {
+            std::string date = getCurrentSystemTime();
+            std::string msg = "Client " + std::to_string(num) + "     Time(MM/SS) " + date + "      ";
+            auto client = std::make_shared<ClientSession>(io, msg);
+            //boost::asio::post(io, [&, msg]() {
+            
+            client->start(endpoints);
+           //   });
+            clients.push_back(client);
+            num=num + 1 ;
+        }
+        // 多線程跑 io_context，避免單線程卡死
+        int thread_count = std::thread::hardware_concurrency();
+        std::vector<std::thread> threads;
 
-    std::vector<std::shared_ptr<ClientSession>> clients;
-    for (int i = 0; i < num_clients; ++i) {
-        auto client = std::make_shared<ClientSession>(io, "Hello from client " + std::to_string(i));
-        client->start(endpoints);
-        clients.push_back(client);
+        for (int a = 0; a < thread_count; ++a) {
+            //g_logger.log(std::to_string(a) + "'s Thread activated!");
+            threads.emplace_back([&io]() {io.run();});
+        }
+        for (auto& t : threads) {
+            t.join();
+            //g_logger.log(std::to_string(multi)+"'s Join done");
+        }
+        //if (io.stopped())g_logger.log("jsafio");
+
     }
-
-    // 多線程跑 io_context，避免單線程卡死
-    std::vector<std::thread> threads;
-    int thread_count = std::thread::hardware_concurrency();
-    for (int i = 0; i < thread_count; ++i) {
-        threads.emplace_back([&io]() { io.run(); });
-    }
-
-    for (auto& t : threads) t.join();
+    //Sleep(100000);
 }
