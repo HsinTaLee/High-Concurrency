@@ -31,7 +31,7 @@ private:
             boost::asio::buffer(data_, max_length),
             [this, self](boost::system::error_code ec, std::size_t length) {
                 if (ec == boost::asio::error::eof) {
-                    g_logger.log("Client kills itself in reading session");
+                    //g_logger.log("Client kills itself in reading session");
                     do_exit();
                 }
                 else if(!ec) {

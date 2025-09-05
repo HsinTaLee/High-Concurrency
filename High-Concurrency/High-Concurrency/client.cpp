@@ -20,8 +20,8 @@ std::string getCurrentSystemTime() {
 
 class ClientSession : public std::enable_shared_from_this<ClientSession> {
 public:
-    ClientSession(boost::asio::io_context& io, const std::string& msg)
-        : socket_(io), message_(msg) {}
+    ClientSession(boost::asio::io_context& io, const std::string& msg, int doboth)
+        : socket_(io), message_(msg) , doboth_(doboth){}
 
     void start(tcp::resolver::results_type endpoints) {
         auto self(shared_from_this());
@@ -29,8 +29,7 @@ public:
             [this, self](boost::system::error_code ec, tcp::endpoint) {  
                 if (!ec) {
                     //g_logger.log(message_);
-                    do_write();
-                    do_read();
+                    do_both(doboth_); //裡面數字代表 do_write->do-read 重複n次
                 }
                 else {
                     g_logger.log(message_ +"fullllll" + ec.message());
@@ -66,9 +65,10 @@ private:
                 else if (!ec) {
                     std::string reply(reply_, length);
                     if (reply == message_) {
-                        g_logger.log("Echo OK, closing: " + message_);
+                        std::string date = getCurrentSystemTime();
+                        g_logger.log("Echo OK, closing: " + message_ + "Client time = " + date );
                         // 主動關閉連線
-                        do_exit();
+                        //do_exit();
                     }
                     else {
                         g_logger.log("Echo mismatch! client: " + message_);
@@ -85,22 +85,33 @@ private:
         socket_.shutdown(tcp::socket::shutdown_both, ignored_ec);
         socket_.close();
     }
+    void do_both(int j) {
+        if (j ==  0) {
+            j = 100;
+        }
+        for (int i = 0; i < j; i++) {
+            do_write();
+            do_read();
+        }
+    }
 
     tcp::socket socket_;
     std::string message_;
     char reply_[1024];
+    int doboth_;
 };
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 5) {
-        std::cerr << "Usage: client <host> <port> <num_connections/s><multi/s>\n";
+    if (argc != 6) {
+        std::cerr << "Usage: client <host> <port> <num_connections/t><multi/t><write->read/t>\n";
         return 1;
     }
     std::string host = argv[1];
     std::string port = argv[2];
     int num_clients = std::stoi(argv[3]);
     int num_limit = std::stoi(argv[4]);
+    int num_trade = std::stoi(argv[5]);
 
     boost::asio::io_context io;
     tcp::resolver resolver(io);
@@ -111,7 +122,7 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < num_clients; ++i) {
             std::string date = getCurrentSystemTime();
             std::string msg = "Client " + std::to_string(num) + "     Time(MM/SS) " + date + "      ";
-            auto client = std::make_shared<ClientSession>(io, msg);
+            auto client = std::make_shared<ClientSession>(io, msg, num_trade);
             //boost::asio::post(io, [&, msg]() {
             
             client->start(endpoints);
@@ -134,5 +145,5 @@ int main(int argc, char* argv[]) {
         //if (io.stopped())g_logger.log("jsafio");
 
     }
-    //Sleep(100000);
+    //Sleep(10000);
 }
