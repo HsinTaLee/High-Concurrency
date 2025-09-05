@@ -21,7 +21,7 @@ std::string getCurrentSystemTime() {
 class ClientSession : public std::enable_shared_from_this<ClientSession> {
 public:
     ClientSession(boost::asio::io_context& io, const std::string& msg, int doboth)
-        : socket_(io), message_(msg) , doboth_(doboth){}
+        : socket_(io), message_(msg) ,timer_(io), doboth_(doboth){}
 
     void start(tcp::resolver::results_type endpoints) {
         auto self(shared_from_this());
@@ -66,12 +66,12 @@ private:
                     std::string reply(reply_, length);
                     if (reply == message_) {
                         std::string date = getCurrentSystemTime();
-                        g_logger.log("Echo OK, closing: " + message_ + "Client time = " + date );
+                        g_logger.log("Echo OK," + message_ + "Client time = " + date );
                         // 主動關閉連線
                         //do_exit();
                     }
                     else {
-                        g_logger.log("Echo mismatch! client: " + message_);
+                        g_logger.log("Echo mismatch! " + message_ +" reply = "+ reply);
                     }
                 }
                 else {
@@ -86,19 +86,35 @@ private:
         socket_.close();
     }
     void do_both(int j) {
-        if (j ==  0) {
-            j = 100;
+        auto self(shared_from_this());
+        if (j == 0) {
+           doboth_  = 100;
+           j = 100;
+            do_both(j);
         }
-        for (int i = 0; i < j; i++) {
+        else if (j == 1) {
             do_write();
             do_read();
         }
+        else {
+            timer_.expires_after(boost::asio::chrono::milliseconds(20)); //每次write/read後都有x毫秒的時間
+            timer_.async_wait([this, self](boost::system::error_code ec) {
+                if (!ec) {
+                    do_write();
+                    do_read();
+                    do_both(--doboth_);
+                }
+                else {
+                    g_logger.log("wait error" + ec.message());
+                }
+                });
+        }     
     }
-
     tcp::socket socket_;
     std::string message_;
     char reply_[1024];
     int doboth_;
+    boost::asio::steady_timer timer_;
 };
 
 
@@ -121,12 +137,9 @@ int main(int argc, char* argv[]) {
         std::vector<std::shared_ptr<ClientSession>> clients;
         for (int i = 0; i < num_clients; ++i) {
             std::string date = getCurrentSystemTime();
-            std::string msg = "Client " + std::to_string(num) + "     Time(MM/SS) " + date + "      ";
-            auto client = std::make_shared<ClientSession>(io, msg, num_trade);
-            //boost::asio::post(io, [&, msg]() {
-            
+            std::string msg = "Client " + std::to_string(num+1) + " Time(MM/SS) " + date +" ";
+            auto client = std::make_shared<ClientSession>(io, msg, num_trade);          
             client->start(endpoints);
-           //   });
             clients.push_back(client);
             num=num + 1 ;
         }
@@ -135,15 +148,11 @@ int main(int argc, char* argv[]) {
         std::vector<std::thread> threads;
 
         for (int a = 0; a < thread_count; ++a) {
-            //g_logger.log(std::to_string(a) + "'s Thread activated!");
             threads.emplace_back([&io]() {io.run();});
         }
         for (auto& t : threads) {
             t.join();
-            //g_logger.log(std::to_string(multi)+"'s Join done");
         }
-        //if (io.stopped())g_logger.log("jsafio");
 
     }
-    //Sleep(10000);
 }
