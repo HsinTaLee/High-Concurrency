@@ -29,7 +29,8 @@ public:
             [this, self](boost::system::error_code ec, tcp::endpoint) {  
                 if (!ec) {
                     //g_logger.log(message_);
-                    do_both(doboth_); //裡面數字代表 do_write->do-read 重複n次
+                    if (doboth_ <= 0) doboth_ = 100; //小於等於0皆設定為100
+                    do_both(&doboth_); //裡面數字代表 do_write->do-read 重複n次
                 }
                 else {
                     g_logger.log(message_ +"fullllll" + ec.message());
@@ -85,24 +86,20 @@ private:
         socket_.shutdown(tcp::socket::shutdown_both, ignored_ec);
         socket_.close();
     }
-    void do_both(int j) {
+    void do_both(int * j) {
         auto self(shared_from_this());
-        if (j == 0) {
-           doboth_  = 100;
-           j = 100;
-            do_both(j);
-        }
-        else if (j == 1) {
+        if (*j == 1) {
             do_write();
             do_read();
         }
         else {
+            --(*j);
             timer_.expires_after(boost::asio::chrono::milliseconds(20)); //每次write/read後都有x毫秒的時間
             timer_.async_wait([this, self](boost::system::error_code ec) {
                 if (!ec) {
                     do_write();
-                    do_read();
-                    do_both(--doboth_);
+                    do_read();      
+                    do_both(&doboth_);
                 }
                 else {
                     g_logger.log("wait error" + ec.message());
@@ -153,6 +150,6 @@ int main(int argc, char* argv[]) {
         for (auto& t : threads) {
             t.join();
         }
-
     }
+
 }
