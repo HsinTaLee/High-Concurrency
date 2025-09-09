@@ -88,17 +88,26 @@ private:
     }
     void do_both(int * j) {
         auto self(shared_from_this());
-        if (*j == 1) {
-            do_write();
-            do_read();
-        }
-        else {
-            --(*j);
-            timer_.expires_after(boost::asio::chrono::milliseconds(20)); //每次write/read後都有x毫秒的時間
+        do_write();
+        do_read();
+        --(*j);
+        if (*j == 0) {     //一個client連線資料傳完 要中斷連線
+            //g_logger.log(message_+"Last connection");
+            timer_.expires_after(boost::asio::chrono::milliseconds(20)); //write/read 非同步回傳時間
             timer_.async_wait([this, self](boost::system::error_code ec) {
                 if (!ec) {
-                    do_write();
-                    do_read();      
+                    do_exit();
+                }
+                else {
+                    g_logger.log("exit error" + ec.message());
+                }
+                });
+            
+        }
+        else {
+            timer_.expires_after(boost::asio::chrono::milliseconds(20)); //每次write/read後都有x毫秒的時間
+            timer_.async_wait([this, self](boost::system::error_code ec) {
+                if (!ec) {  
                     do_both(&doboth_);
                 }
                 else {
